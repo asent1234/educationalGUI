@@ -1211,6 +1211,7 @@ def display_single_song(song):
 
 def test_song_details(song):
     """Test GET /songs/{id} endpoint."""
+    cache = get_current_user_cache()
     song_id = song.get('id')
     log("Songs", "info", f"Testing GET /songs/{song_id}")
     resp = make_api_request('Songs', 'GET', f'/songs/{song_id}', token=cache.id_token)
@@ -1443,6 +1444,7 @@ def display_songs_list_proper(songs):
 
 def test_song_details_endpoint(song):
     """Test GET /songs/{id} endpoint and display comprehensive details."""
+    cache = get_current_user_cache()
     song_id = song.get('id')
     if not song_id:
         log("Songs", "error", "No song ID available")
@@ -1810,15 +1812,16 @@ def display_song_results(songs):
                     button_frame.pack(side="right", padx=10, pady=5)
                     
                     ctk.CTkButton(button_frame, text="Details", width=80, 
-                                command=lambda s=song: show_song_details(s)).pack(side="left", padx=2)
+                                command=lambda s=song: show_song_details_enhanced(s)).pack(side="left", padx=2)
                     ctk.CTkButton(button_frame, text="Image", width=80,
-                                command=lambda s=song: show_song_image(s)).pack(side="left", padx=2)
+                                command=lambda s=song: show_song_image_enhanced(s)).pack(side="left", padx=2)
                     ctk.CTkButton(button_frame, text="PDF", width=80,
                                 command=lambda s=song: open_song_pdf(s)).pack(side="left", padx=2)
                 break
 
 def show_song_details_enhanced(song):
     """Show detailed information about a song with all available data."""
+    cache = get_current_user_cache()
     song_id = song.get('id')
     if not song_id:
         log("Songs", "error", "No song ID available")
@@ -2280,6 +2283,7 @@ def select_playlist_clean(playlist):
 
 def view_playlist_clean(playlist):
     """View playlist details."""
+    cache = get_current_user_cache()
     playlist_id = playlist.get('id')
     log("Playlists", "info", f"Testing GET /playlists/{playlist_id}")
     
@@ -2360,6 +2364,7 @@ def remove_song_clean(song_id):
 
 def delete_playlist_clean(playlist):
     """Delete playlist with confirmation."""
+    cache = get_current_user_cache()
     playlist_id = playlist.get('id')
     playlist_name = playlist.get('name', 'Unknown')
     
@@ -2375,7 +2380,6 @@ def delete_playlist_clean(playlist):
         response_data = resp['content']
         if response_data.get('success'):
             log("Playlists", "success", f"DELETE /playlists/{playlist_id} - Success")
-            cache = get_current_user_cache()
             if cache.playlists_selected_playlist and cache.playlists_selected_playlist.get('id') == playlist_id:
                 cache.playlists_selected_playlist = None
                 playlists_info_label.configure(text="No playlist selected")
@@ -3121,7 +3125,7 @@ def add_selected_songs_to_playlist():
             
             # Clear selection and refresh
             clear_song_selection()
-            load_playlists_modern()
+            load_playlists_clean()
         else:
             log("Playlists", "error", "Failed to add songs", payload=response_data)
     else:
@@ -3129,11 +3133,11 @@ def add_selected_songs_to_playlist():
 
 def remove_song_from_playlist_modern(song_id):
     """Remove a song from the current playlist."""
-    if not playlists_selected_playlist:
+    cache = get_current_user_cache()
+    if not cache.playlists_selected_playlist:
         log("Playlists", "warning", "No playlist selected")
         return
     
-    cache = get_current_user_cache()
     if not cache.id_token:
         log("Playlists", "warning", "Please authenticate first")
         return
@@ -3149,7 +3153,7 @@ def remove_song_from_playlist_modern(song_id):
         if response_data.get('success'):
             log("Playlists", "success", f"Removed song from playlist")
             # Refresh playlist
-            load_playlists_modern()
+            load_playlists_clean()
         else:
             log("Playlists", "error", "Failed to remove song", payload=response_data)
     else:
@@ -3198,7 +3202,7 @@ def delete_playlist_modern(playlist):
                 cache = get_current_user_cache()
                 if cache.playlists_selected_playlist and cache.playlists_selected_playlist.get('id') == playlist_id:
                     cache.playlists_selected_playlist = None
-                load_playlists_modern()
+                load_playlists_clean()
             else:
                 log("Playlists", "error", "Failed to delete playlist", payload=response_data)
         else:
@@ -3381,7 +3385,7 @@ def add_song_to_selected_playlist_proper(song):
     if resp and resp['status'] == 200:
         log("Playlists", "success", f"Added '{song_title}' to playlist '{playlist_name}'")
         # Refresh the playlist details and list
-        load_playlists_proper()
+        load_playlists_clean()
         show_playlist_details_proper(cache.playlists_selected_playlist)
     else:
         log("Playlists", "error", f"Failed to add song to playlist", payload=resp.get('content') if resp else 'N/A')
@@ -3457,7 +3461,7 @@ def remove_song_from_playlist_proper(playlist_id, song_id):
     if resp and resp['status'] == 200:
         log("Playlists", "success", f"Removed song from playlist")
         # Refresh displays
-        load_playlists_proper()
+        load_playlists_clean()
         cache = get_current_user_cache()
         if cache.playlists_selected_playlist and cache.playlists_selected_playlist.get('id') == playlist_id:
             show_playlist_details_proper(cache.playlists_selected_playlist)
@@ -3505,7 +3509,7 @@ def delete_playlist_proper(playlist):
             cache = get_current_user_cache()
             if cache.playlists_selected_playlist and cache.playlists_selected_playlist.get('id') == playlist_id:
                 cache.playlists_selected_playlist = None
-            load_playlists_proper()
+            load_playlists_clean()
         else:
             log("Playlists", "error", "Failed to delete playlist", payload=resp.get('content') if resp else 'N/A')
     
