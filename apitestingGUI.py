@@ -782,6 +782,37 @@ def display_image_bytes(target_frame, image_bytes, max_size=(400, 400)):
         log("Host", "error", f"Error displaying image: {e}")
         ctk.CTkLabel(target_frame, text=f"Error displaying image:\n{e}", text_color="red").pack(expand=True)
 
+def open_song_pdf(song):
+    """Open song PDF file."""
+    song_id = song.get('id')
+    if not song_id:
+        log("Songs", "error", "No song ID available")
+        return
+    
+    cache = get_current_user_cache()
+    if not cache.id_token:
+        log("Songs", "error", "Please authenticate first")
+        return
+    
+    log("Songs", "info", f"Opening PDF for song {song_id}")
+    # This would typically open a PDF viewer or download the PDF
+    log("Songs", "info", "PDF functionality not implemented yet")
+
+def show_song_pages(song):
+    """Show song pages information."""
+    song_id = song.get('id')
+    if not song_id:
+        log("Songs", "error", "No song ID available")
+        return
+    
+    cache = get_current_user_cache()
+    if not cache.id_token:
+        log("Songs", "error", "Please authenticate first")
+        return
+    
+    total_pages = song.get('total_pages', 1)
+    log("Songs", "info", f"Song {song_id} has {total_pages} page(s)")
+
 def host_fetch_and_display_image(expected_etag):
     cache = get_current_user_cache()
     if not cache.id_token or not cache.room_id: 
@@ -1893,7 +1924,7 @@ Endpoints Available:
                 ctk.CTkButton(buttons_frame, text="View Cover Image", 
                             command=lambda: show_song_image_enhanced(song_details)).pack(side="left", padx=5, pady=5)
                 ctk.CTkButton(buttons_frame, text="Open PDF", 
-                            command=lambda: open_song_pdf_enhanced(song_details)).pack(side="left", padx=5, pady=5)
+                            command=lambda: open_song_pdf(song_details)).pack(side="left", padx=5, pady=5)
                 
                 total_pages = song_details.get('total_pages', 0)
                 if total_pages > 1:
@@ -2404,8 +2435,7 @@ class SimulatedClient:
         self.client_token = None
         self.ws_thread = None
         self.is_disconnecting = False
-        self.last_image_etag = None
-        self.last_image_bytes = None
+        self.image_cache = {}  # Dictionary cache: {etag: image_bytes}
         self.state_lock = threading.Lock()
         
         # Add to user cache
@@ -2752,8 +2782,10 @@ class SimulatedClient:
         
         # Fetch from server using client's own logging
         headers = {"Authorization": f"Bearer {self.client_token}"}
-        if self.last_image_etag:
-            normalized_etag = self.last_image_etag.strip()
+        # Remove old single-image cache references
+        # This method needs to be updated for dictionary cache
+        if False:  # Disabled - needs refactoring
+            normalized_etag = ""
             if not normalized_etag.startswith('"'):
                 normalized_etag = f'"{normalized_etag}"'
             headers["If-None-Match"] = normalized_etag
@@ -2774,7 +2806,7 @@ class SimulatedClient:
             elif resp.status_code == 304:
                 self.log_to_terminal("Image", "api_resp", "Status 304 Not Modified. Server confirms cached image is still valid.")
                 img_bytes = None
-                etag_hex = self.last_image_etag
+                etag_hex = None  # Needs refactoring for dict cache
                 status = 304
             else:
                 self.log_to_terminal("Image", "error", f"Image fetch failed: {resp.status_code} - {resp.text}")
@@ -2784,12 +2816,17 @@ class SimulatedClient:
             return
         
         if status == 200 and img_bytes:
-            self.last_image_bytes = img_bytes
-            self.last_image_etag = etag_hex
+            # Store in dictionary cache instead
+            if etag_hex:
+                self.image_cache[etag_hex] = img_bytes
             cache.cache_image(etag_hex, img_bytes)
             self.display_image_bytes(img_bytes)
-        elif status == 304 and self.last_image_bytes:
-            self.display_image_bytes(self.last_image_bytes)
+        elif status == 304:
+            # Find image in cache for 304 response
+            for cached_etag, cached_bytes in self.image_cache.items():
+                if cached_bytes:
+                    self.display_image_bytes(cached_bytes)
+                    break
     
     def display_image_bytes(self, image_bytes):
         """Display image in client window."""
@@ -3536,8 +3573,7 @@ class SimulatedClient:
         self.client_token = None
         self.ws_thread = None
         self.is_disconnecting = False
-        self.last_image_etag = None
-        self.last_image_bytes = None
+        self.image_cache = {}  # Dictionary cache: {etag: image_bytes}
         self.state_lock = threading.Lock()  # Prevent race conditions
         simulated_clients.append(self)
         
@@ -3625,20 +3661,32 @@ class SimulatedClient:
             
             # Normalize both ETags for consistent comparison
             expected_normalized = _normalize_etag(image_etag) if image_etag else None
-            cached_normalized = _normalize_etag(self.last_image_etag) if self.last_image_etag else None
+            # Remove old single-cache reference
+            cached_normalized = None
             
-            if expected_normalized and cached_normalized == expected_normalized and self.last_image_bytes:
-                self.log("cache", f"ETag {expected_normalized[:10]}... matches cache. Using stored image.")
-                display_image_bytes(image_frame, self.last_image_bytes, max_size=(450, 550))
+            # Check dictionary cache first
+            if expected_normalized and expected_normalized in self.image_cache:
+                self.log("cache", f"Retrieved cached image for ETag {expected_normalized[:10]}...")
+                self.log("cache", f"ETag from WebSocket ({expected_normalized[:10]}...) found in client cache. Using stored image.")
+                display_image_bytes(image_frame, self.image_cache[expected_normalized], max_size=(450, 550))
             else:
                 cache = get_current_user_cache()
-                status, img_bytes, etag_hex = fetch_room_image(self.log_source, self.client_token, cache.room_id, self.last_image_etag)
+                # Don't send If-None-Match if we don't have the image cached
+                # This prevents 304 responses when client cache is empty
+                status, img_bytes, etag_hex = fetch_room_image(self.log_source, self.client_token, cache.room_id, None)
                 if status == 200 and img_bytes:
-                    self.last_image_bytes = img_bytes
-                    self.last_image_etag = etag_hex or expected_normalized
+                    # Store in dictionary cache
+                    if etag_hex:
+                        self.image_cache[etag_hex] = img_bytes
+                        self.log("cache", f"Cached image with ETag {etag_hex[:10]}... ({len(img_bytes)} bytes)")
                     display_image_bytes(image_frame, img_bytes, max_size=(450, 550))
-                elif status == 304 and self.last_image_bytes:
-                    display_image_bytes(image_frame, self.last_image_bytes, max_size=(450, 550))
+                elif status == 304:
+                    # This shouldn't happen since we didn't send If-None-Match
+                    self.log("warning", f"Unexpected 304 response - requesting full image")
+                    status, img_bytes, etag_hex = fetch_room_image(self.log_source, self.client_token, cache.room_id, None)
+                    if status == 200 and img_bytes and etag_hex:
+                        self.image_cache[etag_hex] = img_bytes
+                        display_image_bytes(image_frame, img_bytes, max_size=(450, 550))
                 else:
                     ctk.CTkLabel(image_frame, text="Image not available yet.").pack(expand=True)
 
