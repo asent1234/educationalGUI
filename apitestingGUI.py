@@ -908,7 +908,7 @@ def host_select_song():
             
             song_info_label.configure(text=f"Song: {content.get('title', song_id)}")
             page_indicator.configure(text=f"Page: {cache.host_current_page}/{cache.host_total_pages}")
-            host_fetch_and_display_image(content.get('image_etag'))
+            # Image will be fetched when WebSocket confirms song selection
     else:
         log("Host", "error", "Failed to set song.", payload=resp.get('content') if resp else 'N/A')
 
@@ -930,7 +930,7 @@ def host_change_page(direction):
         with cache.host_state_lock:
             cache.host_current_page = new_page
             page_indicator.configure(text=f"Page: {cache.host_current_page}/{cache.host_total_pages}")
-            host_fetch_and_display_image(None)
+            # Image will be fetched when WebSocket confirms page change
     else:
         log("Host", "error", "Failed to change page.", payload=resp.get('content') if resp else 'N/A')
 
