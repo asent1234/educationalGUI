@@ -598,6 +598,8 @@ def setup_songs_tab(tab_frame):
     
     # Store references
     tab_frame.songs_auth_button = songs_auth_button
+    tab_frame.songs_scrollable = songs_scrollable_frame  # Add reference to scrollable frame for proper display
+    tab_frame.song_details_frame = songs_display_frame  # Add reference to details frame
 
 def setup_playlists_tab(tab_frame):
     """Clean Playlists tab - tests all playlist endpoints."""
@@ -900,7 +902,7 @@ def create_host_room():
 def populate_song_list(dropdown):
     cache = get_current_user_cache()
     if not cache.id_token: log("Host", "warning", "Authenticate as host first."); return
-    resp = make_api_request('Host', 'GET', '/songs/list', token=cache.id_token)
+    resp = make_api_request('Host', 'GET', '/songs/list?limit=200', token=cache.id_token)
     if resp and resp['status'] == 200:
         raw = resp['content']
         try:
@@ -1095,11 +1097,12 @@ def load_all_songs_clean():
         return
     
     # Check cache first
-    endpoint = '/songs/?limit=50'
+    endpoint = '/songs/?limit=200'
     cached_resp = cache.get_cached_api_response(endpoint, max_age_seconds=300)  # 5 minute cache
     if cached_resp:
         cache.songs_current_list = cached_resp['content']
         display_songs_list(cache.songs_current_list)
+        display_songs_list_proper(cache.songs_current_list)  # Update both displays
         success_msg = f"✓ Loaded {len(cache.songs_current_list)} songs (cached)"
         log("Songs", "cache", f"Using cached songs list ({len(cache.songs_current_list)} songs)")
         update_songs_console(success_msg)
@@ -1113,6 +1116,7 @@ def load_all_songs_clean():
         cache.songs_current_list = resp['content']
         cache.cache_api_response(endpoint, resp)  # Cache the response
         display_songs_list(cache.songs_current_list)
+        display_songs_list_proper(cache.songs_current_list)  # Update both displays
         success_msg = f"✓ Loaded {len(cache.songs_current_list)} songs"
         log("Songs", "success", f"Loaded {len(cache.songs_current_list)} songs")
         update_songs_console(success_msg)
@@ -1136,11 +1140,12 @@ def search_songs_clean():
     
     log("Songs", "info", f"Searching for '{query}'...")
     update_songs_console(f"Searching for '{query}'...")
-    resp = make_api_request('Songs', 'GET', f'/songs/?search={query}&limit=20', token=cache.id_token)
+    resp = make_api_request('Songs', 'GET', f'/songs/?search={query}&limit=200', token=cache.id_token)
     
     if resp and resp['status'] == 200:
         cache.songs_current_list = resp['content']
         display_songs_list(cache.songs_current_list)
+        display_songs_list_proper(cache.songs_current_list)  # Update both displays
         success_msg = f"✓ Found {len(cache.songs_current_list)} songs"
         log("Songs", "success", f"Found {len(cache.songs_current_list)} songs")
         update_songs_console(success_msg)
@@ -1168,7 +1173,11 @@ def get_song_by_id_clean():
     
     if resp and resp['status'] == 200:
         song = resp['content']
-        display_single_song(song)
+        # Update both displays with the single song
+        cache.songs_current_list = [song]
+        display_songs_list(cache.songs_current_list)
+        display_songs_list_proper(cache.songs_current_list)
+        display_single_song(song)  # Also show in details view
         success_msg = f"✓ Retrieved '{song.get('title', 'Unknown')}'"
         log("Songs", "success", f"Retrieved '{song.get('title', 'Unknown')}'")
         update_songs_console(success_msg)
@@ -1471,7 +1480,6 @@ def display_songs_list_proper(songs):
                         if page_count > 2:
                             ctk.CTkButton(button_frame, text="Page 2", width=60,
                                         command=lambda s=song: test_single_page_endpoint(s, 2)).grid(row=1, column=2, padx=2, pady=2)
-                break
 
 def test_song_details_endpoint(song):
     """Test GET /songs/{id} endpoint and display comprehensive details."""
@@ -2254,7 +2262,16 @@ def add_song_to_playlist_clean():
         if response_data.get('success'):
             log("Playlists", "success", f"Added song to '{playlist_name}'")
             playlists_song_entry.delete(0, 'end')
+            
+            # Refresh playlists and update selection
+            prev_selected_id = playlist_id  # Remember which playlist was selected
             load_playlists_clean()
+            
+            # Find and reselect the updated playlist
+            for playlist in cache.playlists_current_list:
+                if playlist.get('id') == prev_selected_id:
+                    select_playlist_clean(playlist)  # This will update the label with new song count
+                    break
         else:
             log("Playlists", "error", f"Add song failed - {response_data.get('message', 'Unknown')}")
     else:
@@ -2303,14 +2320,15 @@ def display_playlists_list(playlists):
 def select_playlist_clean(playlist):
     """Select a playlist for operations."""
     cache = get_current_user_cache()
-    cache.playlists_selected_playlist = playlist
+    cache.playlists_selected_playlist = playlist  # Store the playlist data
     
+    # Use the song count from the list view
     name = playlist.get('name', 'Unknown')
     song_count = playlist.get('song_count', 0)
     playlists_info_label.configure(text=f"Selected: {name} ({song_count} songs)")
     
     display_playlists_list(cache.playlists_current_list)  # Refresh to show selection
-    log("Playlists", "info", f"Selected '{name}'")
+    log("Playlists", "info", f"Selected '{name}' with {song_count} songs")
 
 def view_playlist_clean(playlist):
     """View playlist details."""
@@ -2386,8 +2404,16 @@ def remove_song_clean(song_id):
         response_data = resp['content']
         if response_data.get('success'):
             log("Playlists", "success", f"DELETE /playlists/{playlist_id}/songs/{song_id} - Success")
+            # Refresh playlists and update selection
+            prev_selected_id = playlist_id  # Remember which playlist was selected
             load_playlists_clean()
-            view_playlist_clean(cache.playlists_selected_playlist)
+            
+            # Find and reselect the updated playlist
+            for playlist in cache.playlists_current_list:
+                if playlist.get('id') == prev_selected_id:
+                    select_playlist_clean(playlist)  # This will update the label with new song count
+                    view_playlist_clean(playlist)  # Show updated playlist details
+                    break
         else:
             log("Playlists", "error", f"Remove failed - {response_data.get('message', 'Unknown')}")
     else:
